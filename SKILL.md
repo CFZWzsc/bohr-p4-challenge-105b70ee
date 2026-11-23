@@ -7,79 +7,84 @@ description: Use when a paper must be converted into a target field table with v
 
 ## 用途与适用条件
 
-按给定的目标字段表，从论文中抽取字段值、单位、比较符、条件与段落出处，并区分已报告、未报告、来源冲突与抽取失败。
+按给定的目标字段表，把论文正文、表格、图注与补充材料还原成同一份字段表：每个 `field_id` 给出值、单位、统计量、实验条件、比较符与段落出处，并区分已报告、未报告、来源冲突与抽取失败。
 
-适用条件：任务提供 `/input/case.json`（或 `--case` 指定的等价案例文件），按需提供 `/input/task.md` 和同目录的配套 JSON/文本/PDF/DOCX/XLSX 材料，要求把结构化、可复核的结果写入 `/app/output/result.json`。输入包含 `target-fields.json`（或 `target_fields`/`fields`）与论文段落或正文，常要求保留 `paragraph_id` 与逐字引文。
+适用：`/input/case.json`（或 `--case` 指定），可带 `/input/task.md` 与 `/input/target-fields.json`，以及论文段落或正文。输入含 `target_fields`/`fields`/`extraction_fields` 与 `paragraphs`，通常要求保留 `paragraph_id` 与逐字引文。
 
-不适用：不根据领域常识补齐未报告字段；不把不同实验条件的数值强行合并为单一值。
+不适用：不根据领域常识补齐未报告字段；不把不同实验条件的数值合并为单一值；不改写、换算或四舍五入原文数值。
 
 ## 输入
 
-- 主输入 `/input/case.json`：读取其中真实的段落、题录、字段表、工作单或查询；不根据文件名、标题或领域标签补造内容。
-- 任务说明 `/input/task.md`：存在时优先作为任务语义依据；缺失时仅使用 `case.json` 中的显式字段。
-- 配套材料：`comparison-workorder.json`、`target-fields.json`、`claims-to-verify.json`、`corpus-manifest.json`、`material.json`、`evaluation-workorder.json` 等按题目约定从 `/input` 与案例文件所在目录读取，文件名与解析结果写入输出的 `coverage`/`result`。
-- 支持标准库可直接读取的 TXT/MD/CSV/TSV/JSON/BibTeX/RIS/XML/HTML，以及 DOCX/PPTX/XLSX（解包 XML）与 PDF（最小流解析）；扫描件或无文本层文件只登记状态，不伪装成已读。
-- 路径解析顺序为 `/input`、案例文件所在目录、当前工作目录、`/app`；找不到的路径写入 `errors` 或 `uncertainty`，不静默替换。
-- 仅依赖 CPython 3.9+ 标准库；不联网、不读取环境变量中的令牌、不修改 `/input`，只写 `--out` 与 `--work`。
+- 主输入 `/input/case.json`：只读取其中真实的段落、表格与字段表，不根据文件名、标题或领域标签补造内容。
+- 字段表 `target-fields.json`（或 `case.json` 内的 `target_fields`/`fields`）：每个 `field_id`、名称、别名、说明与期望单位都必须逐条处理。
+- 配套材料从 `/input` 与案例文件同目录读取，读取结果记入 `result.field_list_refs` 与 `stats`，失败记入 `errors`。
+- 路径解析顺序：`/input` → 案例目录 → 当前目录 → `/app`；找不到的路径写入 `errors`/`uncertainty`，不静默替换。
+- 支持 TXT/MD/CSV/TSV/JSON/BibTeX/RIS/XML/HTML、DOCX/PPTX/XLSX（解包 XML）与 PDF（最小流解析）；扫描件或无文本层只登记状态。
+- 仅用 CPython 3.9+ 标准库；不联网、不读取环境变量中的令牌、不修改 `/input`，只写 `--out` 与 `--work`。
 
 ## 处理流程
 
-1. **解析字段表**：读取字段 id、名称、别名、说明与期望单位；缺失字段表时输出 `insufficient_input`。
-2. **字段召回**：用字段名与别名逐句匹配段落，记录全部候选句与来源。
-3. **数值解析**：抽取数字、科学计数法、单位与比较符（<、>、≤、≥、约）；保留原始数值字符串。
-4. **冲突判定**：不同段落给出不同数值或单位时标 `source_conflict`，保留全部候选与两处定位。
-5. **未报告/失败**：有匹配句但无数值且出现 not reported 表述时标 `not_reported`；有文本但无法解析时标 `extraction_failed`。
-6. **证据绑定**：每个报告值绑定 `paragraph_id`、逐字引文、来源与定位。
-7. **契约落盘**：保留 `case_id` 与契约字段，未支持字段写 `null` 并记录。
-
-## 评分维度对应
-
-- **字段完整**：目标字段逐一出现在 `result.fields`，状态明确。
-- **数值与单位**：数值、单位、比较符与条件不丢失，不被四舍五入改写。
-- **来源忠实**：每个值有逐字引文与段落 id；冲突保留双方。
-- **不编造**：未报告字段保持 `null`，不以常识补齐。
+1. **解析字段表**：读取字段 id、名称、别名、说明与期望单位；字段表缺失时输出 `insufficient_input`。
+2. **字段召回**：用字段名与别名逐句匹配段落，记录全部候选句、来源与定位。
+3. **数值解析**：抽取数字、科学计数法、范围值、单位与比较符（`<`、`>`、`≤`、`≥`、约）；保留原始数值字符串。
+4. **条件与统计量**：把数值所属的样本、实验设置、时间点、比较基线与统计量（误差、置信区间、p 值等）绑定到同一字段，不脱离语境单独成行。
+5. **单位匹配**：只有单位与字段期望单位一致（或可明确换算并同时保留原始串）的数值才算该字段的候选；同句出现多个不同单位的数值时取匹配项，其余写入 `uncertainty`，不得直接判成 `source_conflict`。
+6. **冲突判定**：不同段落给出不同数值或单位时标 `source_conflict`，保留全部候选与两处定位，不平均、不择一。
+7. **未报告/失败**：有匹配句但原文说明未报告时标 `not_reported`；有文本但无法解析数值时标 `extraction_failed`。
+8. **证据与语义核对**：每个报告值绑定 `paragraph_id`、逐字引文与定位；逐字匹配不等于语义正确，须核对该句是否真的在报告该字段。
 
 ## 输出契约
 
 写入 `/app/output/result.json`（UTF-8 JSON，确定性排序，无随机、无时间戳）。顶层必须保留：
 
-- 输入 `case_id`（缺失时为 `null`）；
-- 输入 `output_contract` 声明的每一个字段名，原样保留；本 Skill 无法确定性映射的字段写 `null`，并在 `contract_notes` 说明原因，绝不编造；
+- `case_id`：与输入完全一致（缺失时为 `null`）；
+- 输入 `output_contract` 声明的每一个字段名，原样保留；无法确定性映射的写 `null`，并在 `contract_notes` 说明原因；
 - `status`：`success` / `partial` / `insufficient_input` / `failed`；
-- `result`：完整结构化交付，避免契约字段映射丢失信息；
-- `evidence`：可回到段落/文件/定位的证据列表；
-- `uncertainty`：缺口、未读材料与不可判定项；
-- `errors`：结构化错误或缺失路径；
-- `stats`：计数、覆盖率与处理统计；
-- `skill`、`challenge_id`。
+- `result`、`evidence`、`uncertainty`、`errors`、`stats`、`contract_notes`、`skill`、`challenge_id`。
 
-主要交付段：`result.fields`、`result.conflicts`、`result.coverage`、`result.field_list_refs`。
+主要交付段与必填子字段：
 
-字段名以实际 `output_contract` 为准；本 Skill 不删除、不改名、不放宽契约字段。
+| 段 | 必填内容 |
+|---|---|
+| `result.fields[]` | 每个请求的 `field_id` 一条：`field_id`、`field`、`description`、`expected_unit`、`status`（`reported`/`not_reported`/`source_conflict`/`extraction_failed`）、`value`、`unit`、`statistic`、`condition`、`comparator`、`paragraph_id`、`quote`、`matched_sentences`、`source_ids` |
+| `result.conflicts[]` | `field_id`、`field`、`kind`、`values[]`（每组 `value`、`unit`、`paragraph_id`、`quote`）、`policy` |
+| `result.coverage` | `target_fields`、`reported`、`not_reported`、`source_conflict`、`extraction_failed`、`paragraph_units` |
+| `result.field_list_refs` | 实际读取的字段表文件名 |
+| `evidence[]` | 每条含 `field_id`、`paragraph_id`、`quote`、`locator`（页码/表行列/图注编号） |
+| `needs_human_confirmation[]` | `field_id`、`locator`、`reason`：字段歧义、单位缺失、引文与字段不对应、跨页表格未还原时登记 |
 
-## 异常处理
+字段名以实际 `output_contract` 为准；不删除、不改名、不放宽契约字段。
+
+## 交付成品要求
+
+1. **交付成品而不是流程说明**：脚本只产出抽取骨架；调用 Agent 必须补齐 `statistic`、`condition` 与语义核对结论，禁止 `pending`、`TODO` 或空交付段。
+2. **覆盖全部字段与来源**：`target-fields.json` 里每个 `field_id` 一条，正文、表格、图注、补充材料按同一字段表处理，不得只处理首条或首段。
+3. **不改写原文**：数值、单位、误差、统计量与条件限定保持字面一致，不合并、不换算、不张冠李戴；未报告字段保持 `null`，不以常识补齐。
+4. **自检**：`case_id` 与输入一致；`output_contract` 每字段存在或 `null`+`contract_notes`；`status` 取上述枚举；`coverage` 计数与 `fields` 一致；重复运行结果相同。
+5. **参数等价**：`--out` 与 `--output` 等价；默认 `/input/case.json` → `/app/output/result.json`。
+
+## 异常与降级
 
 | 情况 | 处理 | 输出表现 |
 |---|---|---|
-| `case.json` 缺失或不是合法 JSON | 不改写输入；写入结构化失败结果 | 退出码 `2`，`status` 为 `insufficient_input`（解析错误为 `failed`），`errors` 记录原因 |
-| 配套工作单/字段表缺失 | 继续处理可用材料，不猜测清单 | `errors` 记录缺失文件，相关段为空并说明 |
-| PDF 无文本层、文件损坏或无权限 | 登记文件状态，跳过该文件，继续其余材料 | `read_status`、`uncertainty` 明确标注 |
-| 段落/字段/公式/指标找不到 | 保留空值，不推断 | 对应条目 `status` 为 `not_reported`/`insufficient_evidence`，`uncertainty` 说明 |
-| 多个来源数值冲突 | 保留全部候选值与定位，不做平均或择一 | 标记 `source_conflict`/`conflict`，`evidence` 给出两处定位 |
-| 输入只有单一文献却要求多文献比较 | 不伪造第二篇文献 | `status: partial`，明确说明无法构成多文档比较 |
-| 运行异常 | 捕获并输出结构化失败，不假装成功 | `status: failed`，`errors` 含异常类型 |
+| `case.json` 缺失或非法 JSON | 不改写输入，写出结构化失败结果 | `status: insufficient_input`（解析错误为 `failed`），`errors` 记原因 |
+| 字段表缺失 | 不猜测字段清单 | `status: insufficient_input`，`errors` 说明 |
+| 扫描件无文本层、文件损坏或无权限 | 登记状态并跳过，继续其余材料 | `read_status`/`uncertainty` 标注 |
+| 字段原文未报告 | 保留 `null`，不推断 | `status: not_reported`，`uncertainty` 说明 |
+| 有文本但无法解析数值 | 不猜数值 | `status: extraction_failed`，`uncertainty` 说明 |
+| 多条来源数值冲突 | 保留全部候选与定位，不平均不择一 | `status: source_conflict`，`conflicts` 并列两组 |
+| 运行异常 | 捕获后输出结构化失败 | `status: failed`，`errors` 含异常类型 |
+
+进程正常结束（含失败分支）退出码恒为 `0`，失败类别只看 `status`，不要用退出码判断成败。
 
 ## 限制
 
-只解析显式数字与单位；图表、公式推导值与跨段指代可能漏检。字段别名的覆盖范围取决于输入字段表。
+只解析显式数字与单位；图表数值、公式推导值与跨段指代可能漏检。字段别名覆盖范围取决于输入字段表。
 
 ## 最小调用示例（示例，非官方案例结果）
 
 ```bash
-python scripts/run_skill.py \
-  --case /input/case.json \
-  --out /app/output/result.json \
-  --work /app/work
+python scripts/run_skill.py --case /input/case.json --out /app/output/result.json --work /app/work
 ```
 
 示意输入（合成，仅演示接口）：
@@ -96,38 +101,7 @@ python scripts/run_skill.py \
 
 ## 自查清单
 
-- [ ] `case_id` 与输入完全一致；`output_contract` 每个字段都存在，或明确记为 `null` 并写入 `contract_notes`。
-- [ ] 每条结论/实体/字段都能回到 `evidence` 中的来源与段落定位；没有编造作者、年份、DOI、页码或引文。
-- [ ] 未读、损坏、缺失、冲突与空结果都已登记，未写成“全部完成”。
-- [ ] 重复运行产生相同结果；未联网、未修改 `/input`。
-
-
-## 交付保证与评分对齐
-
-调用顺序（固定）：
-
-1. 先运行包内脚本（若存在）：`python scripts/run_skill.py`（默认读 `/input/case.json`，写 `/app/output/result.json`）；路径不同时用 `--case` / `--output` 指定。
-2. 再完成脚本无法自动完成的实质工作（译文、论述、图表、修订、结论等），把结果写回 `result.json` 对应字段。
-3. 最后自检：`case_id` 与输入一致；`output_contract` 每个字段都存在；`status` 使用本 Skill 输出契约的枚举（正常完成为 `success`，确实缺输入或存在未解决项为 `partial`，无法作答为 `insufficient_input`，运行异常为 `failed`）；无 `pending` 占位；数字、引用、来源可逐条回溯。
-
-运行保证：
-
-- 输入缺失、JSON 损坏、字段异常、输出目录不存在时，仍须写出结构化 `result.json` 并正常结束，不得崩溃或非零退出。
-- 不联网、不伪造数据、不声称平台评分或官方案例结果。
-- 交付物必须是可直接编辑与复核的成品，而不是流程说明。
-
-评分对齐（本题五个维度）：
-
-- 实际效果（40）：完整产出任务要求的最终成品，覆盖全部输入条目，可直接进入修改流程。
-- 使用增益（25）：体现相对基础 Agent 的可验证改进（结构化、术语/数字/引用核对、可编辑性）。
-- 创新增益（15）：保留方法学增量（分块、对齐、二次校验、版本比对等），并用结果证明其价值。
-- 可靠体验（10）：异常输入有明确降级与说明，不同长度/文体/重复运行下稳定产出。
-- 生态贡献（10）：用途、调用、输入输出、限制、示例、维护信息齐全，资源可被他人复用。
-
-## 最终交付强制要求
-
-1. **调用 Agent 必须交付成品，不是流程说明**：脚本产出只是索引、核对或规格骨架；调用 Agent 必须在同一 `result.json` 中补齐本题要求的最终产物（正文/译文/审稿意见/综述/分析结论/图表源文件与导出件/幻灯片页内容与讲稿/实验方案等）。交付字段为空、只有标题骨架，或含 `pending`、`TODO` 之类占位，一律视为未完成。
-2. **必须覆盖全部输入条目**：输入中的每个章节、问题、文献、图、页面、指标都要有对应条目，不得只处理示例或首条；确实缺失的条目写入 `uncertainty` / `limitations` 并说明原因，不得静默跳过。
-3. **必须自检后再交付**：`case_id` 与输入一致；`output_contract` 每个字段都存在；状态值取本题契约规定的枚举；数字、单位、引用、来源可逐条回溯；结果内部无自相矛盾。
-4. **参数等价**：`python scripts/run_skill.py --case <输入> --out <输出>` 与 `--output <输出>` 等价；默认 `/input/case.json` → `/app/output/result.json`。
-5. **平台用 3 个固定案例分别运行**：逻辑要由输入驱动，不针对某一份示例硬编码；字段命名差异走别名匹配与显式降级，并在 `uncertainty` 记录假设。
+- [ ] `case_id` 与输入一致；`output_contract` 每个字段都存在，或记为 `null` 并写入 `contract_notes`。
+- [ ] 每个字段值与逐字引文、段落定位一致，未编造数值、单位、作者或页码。
+- [ ] 未报告、抽取失败、来源冲突与未读材料均已分别登记，未写成“全部完成”。
+- [ ] 重复运行结果相同；未联网、未修改 `/input`；未声称平台评分或官方案例结果。
