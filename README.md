@@ -3,33 +3,59 @@
 Bohrium Playground Period 4 submission — challenge `challenge-105b70ee` (track: `literature-reading`).
 
 This repository holds the complete skill package for the challenge: the skill
-definition, its executable entry point and all supporting scripts. No precomputed
+definition, its executable pipeline and all supporting documents. No precomputed
 answers, private data or credentials are included.
 
 ## Skill
 
-- Name: `paper-data-field-extractor`
-- Summary: Use when a paper must be converted into a target field table with values, units, conditions and source paragraphs.
+- Name: `bohr-reading`
+- Summary: 当需要解析科研材料并产出可复核的结构化结果时使用。 本题范围：文献结论与数据提取。 题目家族：文献结论与数据提取。 任务要求：Synthetic interface example only; actual task inputs are supplied at evaluation. 产出 result.json，其中包含运行时 output_contract 要求的全部字段，每条结论附带原文证据（段落定位 + 短引），无法从材料判断的部分如实写入 uncertainty 而非编造。
 
 ## Contents
 
 | File |
 |------|
+| `LICENSE` |
+| `README.md` |
 | `SKILL.md` |
-| `scripts/run_skill.py` |
+| `assets/contract-aliases.json` |
+| `assets/policy.json` |
+| `assets/result-schema.md` |
+| `environment/resources.yaml` |
+| `environment/runtime.txt` |
+| `examples/demo-case/agent_judgement.example.json` |
+| `examples/demo-case/case.json` |
+| `examples/demo-case/material.md` |
+| `examples/demo-case/task.md` |
+| `examples/quickstart.md` |
+| `references/artifact-pipeline.md` |
+| `references/contract-handling.md` |
+| `references/evidence-discipline.md` |
+| `references/failure-modes.md` |
+| `references/two-phase-workflow.md` |
+| `scripts/artifacts.py` |
+| `scripts/pptxgen.py` |
+| `scripts/sk_base.py` |
+| `scripts/sk_entry.py` |
+| `scripts/sk_selftest.py` |
+| `scripts/skill_profile.json` |
+| `scripts/specialize.py` |
+| `scripts/topic.py` |
 | `README.md` |
 
 ## How to run
 
 ```bash
-python scripts/run_skill.py --case /input/case.json --output /app/output/result.json
+python scripts/sk_entry.py --input /input --work /app/work --out /app/output
 ```
 
-The entry point is `SKILL.md`; input/output contracts, error handling and a minimal
-usage example are documented there.
+Two passes are intended: the first writes `/app/work/agent_tasks.json` (evidence
+skeleton) and `/app/output/result.json`; after the agent writes
+`/app/work/agent_judgement.json`, the second pass merges and validates the result.
+See `SKILL.md` and `references/two-phase-workflow.md`.
 
 ## Notes
 
 - Pure Python standard library; no network access required.
-- The result JSON keeps the input case id, the main results, per-item evidence,
-  a run status and an uncertainty section.
+- Every claim is anchored to paragraph-level evidence; unknown items are reported
+  in `uncertainty` instead of being fabricated.
